@@ -1,6 +1,12 @@
 import { serve } from "https://deno.land/std@0.152.0/http/server.ts";
 import { CSS, render } from "https://deno.land/x/gfm@0.1.22/mod.ts";
 
+const ALLOWED_DOMAINS = {
+  ajax: "ajax.googleapis.com",
+  cdnjs: "cdnjs.cloudflare.com",
+  zoho: "js.zohocdn.com"
+};
+
 function addCorsIfNeeded(response: Response) {
   const headers = new Headers(response.headers);
 
@@ -11,38 +17,28 @@ function addCorsIfNeeded(response: Response) {
   return headers;
 }
 
-function isUrl(url: string) {
-  if (!url.startsWith("http://") && !url.startsWith("https://")) {
-    return false;
-  }
-
-  try {
-    new URL(url);
-    return true;
-  } catch {
-    return false;
-  }
+function getFullUrl(url: string) {
+  const [domain, path] = url.split("/", 2);
+  return `https://${ALLOWED_DOMAINS[domain] || domain}/${path || ""}`;
 }
 
 async function handleRequest(request: Request) {
   const { pathname, search } = new URL(request.url);
-  const url = pathname.substring(1) + search;
+  const url = getFullUrl(pathname.substring(1) + search);
 
-  if (isUrl(url)) {
-    console.log("proxy to %s", url);
-    const corsHeaders = addCorsIfNeeded(new Response());
-    if (request.method.toUpperCase() === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders });
-    }
-
-    const response = await fetch(url, request);
-    const headers = addCorsIfNeeded(response);
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
+  console.log("proxy to %s", url);
+  const corsHeaders = addCorsIfNeeded(new Response());
+  if (request.method.toUpperCase() === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
   }
+
+  const response = await fetch(url, request);
+  const headers = addCorsIfNeeded(response);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 
   const readme = await Deno.readTextFile("./README.md");
   const body = render(readme);
@@ -78,7 +74,3 @@ async function handleRequest(request: Request) {
     },
   });
 }
-
-const port = Deno.env.get("PORT") ?? "8000";
-
-serve(handleRequest, { port: Number(port) });
